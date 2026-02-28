@@ -1,0 +1,10 @@
+[package]
+name = "mcps"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0"
+clap = { version = "4.5", features = ["derive"] }
+tempfile = "3.13"
+toml_edit = "0.22"
