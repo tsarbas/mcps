@@ -1,10 +1,10 @@
 # mcps
 
-Small Rust CLI to enable/disable Codex MCP servers in your Codex config.
+Small Rust CLI to enable, disable, remove, and list Codex MCP servers in your Codex config.
 
 ## What it does
 
-`mcps` edits the `enabled` flag under `[mcp_servers.<name>]` in a TOML config file.
+`mcps` edits MCP server entries under `[mcp_servers.<name>]` in a TOML config file.
 
 - Default config path: `~/.codex/config.toml`
 - Override config path: `--config /path/to/config.toml`
@@ -13,6 +13,7 @@ Small Rust CLI to enable/disable Codex MCP servers in your Codex config.
 
 - Enable a configured MCP server
 - Disable a configured MCP server
+- Remove a configured MCP server
 - List all configured MCP servers with status
 - Writes updates safely via temp file + replace
 
@@ -53,6 +54,7 @@ cargo install --path .
 mcps list
 mcps enable <name>
 mcps disable <name>
+mcps remove <name>
 mcps --config /path/to/config.toml list
 ```
 
@@ -77,6 +79,7 @@ Notes:
 
 - If `enabled` is missing for a server, `list` treats it as enabled.
 - `enable`/`disable` requires the server to already exist in `[mcp_servers]`.
+- `remove` deletes the entire `[mcp_servers.<name>]` section. `delete` is an alias.
 
 ## Output examples
 
@@ -97,6 +100,12 @@ xcode disabled
 
 ```text
 xcode enabled
+```
+
+`mcps remove xcode`:
+
+```text
+xcode removed
 ```
 
 ## Error cases

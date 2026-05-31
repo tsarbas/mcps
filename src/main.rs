@@ -9,7 +9,7 @@ use tempfile::Builder;
 use toml_edit::{DocumentMut, Item, value};
 
 #[derive(Debug, Parser)]
-#[command(name = "mcps", about = "Enable/disable Codex MCP servers")]
+#[command(name = "mcps", about = "Enable/disable/remove Codex MCP servers")]
 struct Cli {
     #[arg(long, global = true)]
     config: Option<PathBuf>,
@@ -21,6 +21,8 @@ struct Cli {
 enum Commands {
     Enable { name: String },
     Disable { name: String },
+    #[command(alias = "delete")]
+    Remove { name: String },
     List,
 }
 
@@ -52,6 +54,11 @@ fn run() -> Result<()> {
             set_server_enabled(&mut doc, &name, false)?;
             save_config(&config_path, &doc)?;
             println!("{name} disabled");
+        }
+        Commands::Remove { name } => {
+            remove_server(&mut doc, &name)?;
+            save_config(&config_path, &doc)?;
+            println!("{name} removed");
         }
         Commands::List => {
             let servers = list_servers(&doc)?;
@@ -125,6 +132,19 @@ fn set_server_enabled(doc: &mut DocumentMut, server_name: &str, enabled: bool) -
     }
 
     server_table.insert("enabled", value(enabled));
+    Ok(())
+}
+
+fn remove_server(doc: &mut DocumentMut, server_name: &str) -> Result<()> {
+    let mcp_servers = doc
+        .get_mut("mcp_servers")
+        .and_then(Item::as_table_like_mut)
+        .ok_or_else(|| anyhow::anyhow!("no [mcp_servers] section found in config"))?;
+
+    if mcp_servers.remove(server_name).is_none() {
+        bail!("MCP server '{server_name}' not found");
+    }
+
     Ok(())
 }
 
@@ -226,6 +246,53 @@ command = "xcrun"
 
         let err = set_server_enabled(&mut doc, "missing", true).unwrap_err();
         assert!(err.to_string().contains("not found"));
+    }
+
+    #[test]
+    fn remove_existing_server_removes_only_that_server() {
+        let mut doc = parse_doc(
+            r#"
+[mcp_servers.xcode]
+command = "xcrun"
+
+[mcp_servers.figma]
+command = "figma"
+"#,
+        );
+
+        remove_server(&mut doc, "xcode").unwrap();
+
+        assert!(doc["mcp_servers"].get("xcode").is_none());
+        assert_eq!(
+            doc["mcp_servers"]["figma"]["command"].as_str(),
+            Some("figma")
+        );
+    }
+
+    #[test]
+    fn remove_missing_server_fails() {
+        let mut doc = parse_doc(
+            r#"
+[mcp_servers.xcode]
+command = "xcrun"
+"#,
+        );
+
+        let err = remove_server(&mut doc, "missing").unwrap_err();
+        assert!(err.to_string().contains("not found"));
+    }
+
+    #[test]
+    fn remove_without_mcp_servers_section_fails() {
+        let mut doc = parse_doc(
+            r#"
+[profiles.default]
+model = "gpt-5"
+"#,
+        );
+
+        let err = remove_server(&mut doc, "xcode").unwrap_err();
+        assert!(err.to_string().contains("no [mcp_servers] section"));
     }
 
     #[test]
