@@ -19,10 +19,18 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Commands {
-    Enable { name: String },
-    Disable { name: String },
+    Enable {
+        /// Server name or pattern containing '*' (quote patterns in your shell)
+        name: String,
+    },
+    Disable {
+        /// Server name or pattern containing '*' (quote patterns in your shell)
+        name: String,
+    },
     #[command(alias = "delete")]
-    Remove { name: String },
+    Remove {
+        name: String,
+    },
     List,
 }
 
@@ -46,14 +54,18 @@ fn run() -> Result<()> {
 
     match cli.command {
         Commands::Enable { name } => {
-            set_server_enabled(&mut doc, &name, true)?;
+            let names = set_servers_enabled(&mut doc, &name, true)?;
             save_config(&config_path, &doc)?;
-            println!("{name} enabled");
+            for name in names {
+                println!("{name} enabled");
+            }
         }
         Commands::Disable { name } => {
-            set_server_enabled(&mut doc, &name, false)?;
+            let names = set_servers_enabled(&mut doc, &name, false)?;
             save_config(&config_path, &doc)?;
-            println!("{name} disabled");
+            for name in names {
+                println!("{name} disabled");
+            }
         }
         Commands::Remove { name } => {
             remove_server(&mut doc, &name)?;
@@ -110,6 +122,53 @@ fn save_config(path: &Path, doc: &DocumentMut) -> Result<()> {
         .with_context(|| format!("failed to replace config file at {}", path.display()))?;
 
     Ok(())
+}
+
+fn matches_pattern(pattern: &str, name: &str) -> bool {
+    // Dynamic programming keeps matching bounded even for repeated stars.
+    let name: Vec<char> = name.chars().collect();
+    let mut matched = vec![false; name.len() + 1];
+    matched[0] = true;
+    for character in pattern.chars() {
+        if character == '*' {
+            for i in 1..=name.len() {
+                matched[i] |= matched[i - 1];
+            }
+        } else {
+            for i in (1..=name.len()).rev() {
+                matched[i] = matched[i - 1] && name[i - 1] == character;
+            }
+            matched[0] = false;
+        }
+    }
+    matched[name.len()]
+}
+
+fn set_servers_enabled(doc: &mut DocumentMut, pattern: &str, enabled: bool) -> Result<Vec<String>> {
+    let servers = doc
+        .get("mcp_servers")
+        .and_then(Item::as_table_like)
+        .ok_or_else(|| anyhow::anyhow!("no [mcp_servers] section found in config"))?;
+    let mut names: Vec<String> = servers
+        .iter()
+        .filter(|(name, _)| matches_pattern(pattern, name))
+        .map(|(name, _)| name.to_owned())
+        .collect();
+    names.sort();
+    if names.is_empty() {
+        if pattern.contains('*') {
+            bail!("No MCP servers match pattern '{pattern}'");
+        }
+        bail!("MCP server '{pattern}' not found");
+    }
+
+    // Stage the entire update so validation failures leave the document untouched.
+    let mut updated = doc.clone();
+    for name in &names {
+        set_server_enabled(&mut updated, name, enabled)?;
+    }
+    *doc = updated;
+    Ok(names)
 }
 
 fn set_server_enabled(doc: &mut DocumentMut, server_name: &str, enabled: bool) -> Result<()> {
@@ -188,7 +247,11 @@ fn print_servers(servers: &[ServerStatus]) {
         .max("Name".len());
     println!("{:<width$}  Status", "Name", width = width);
     for server in servers {
-        let state = if server.enabled { "enabled" } else { "disabled" };
+        let state = if server.enabled {
+            "enabled"
+        } else {
+            "disabled"
+        };
         println!("{:<width$}  {}", server.name, state, width = width);
     }
 }
@@ -196,6 +259,34 @@ fn print_servers(servers: &[ServerStatus]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wildcard_matching() {
+        for (pattern, name, expected) in [
+            ("github", "github", true),
+            ("git", "github", false),
+            ("cloud*", "cloud", true),
+            ("cloud*", "cloudflare", true),
+            ("*tools", "my-tools", true),
+            ("*github*", "my-github-tools", true),
+            ("a*b*c", "axybzc", true),
+            ("a**b", "ab", true),
+            ("*", "anything", true),
+            ("*", "", true),
+            ("cloud*", "Cloud", false),
+            ("a?[*", "a?[x", true),
+            ("a?*", "abc", false),
+            ("*é*", "café", true),
+            ("a*b", "abx", false),
+            ("a*b*c", "acb", false),
+        ] {
+            assert_eq!(
+                matches_pattern(pattern, name),
+                expected,
+                "{pattern:?} vs {name:?}"
+            );
+        }
+    }
 
     fn parse_doc(input: &str) -> DocumentMut {
         input.parse::<DocumentMut>().unwrap()
@@ -212,10 +303,7 @@ args = ["mcpbridge"]
         );
 
         set_server_enabled(&mut doc, "xcode", true).unwrap();
-        assert_eq!(
-            doc["mcp_servers"]["xcode"]["enabled"].as_bool(),
-            Some(true)
-        );
+        assert_eq!(doc["mcp_servers"]["xcode"]["enabled"].as_bool(), Some(true));
     }
 
     #[test]

@@ -54,6 +54,9 @@ cargo install --path .
 mcps list
 mcps enable <name>
 mcps disable <name>
+mcps enable '*github*'
+mcps disable 'cloud*'
+mcps disable '*'
 mcps remove <name>
 mcps --config /path/to/config.toml list
 ```
@@ -63,6 +66,13 @@ Run help:
 ```bash
 mcps --help
 ```
+
+For `enable` and `disable`, `*` matches zero or more characters anywhere in a
+server name. Matching is case-sensitive and covers the entire name; all other
+characters are literal. Quote patterns to prevent your shell from expanding them.
+Each command accepts one name or pattern and prints matched servers alphabetically,
+including servers already in the requested state. `remove` accepts exact names only.
+If no servers match, or any matched entry is invalid, the config is left unchanged.
 
 ## Config expectations
 
